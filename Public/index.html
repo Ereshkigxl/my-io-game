@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Mini Agar.io with Dynamic Camera & AI Enemies</title>
+  <style>
+    /* Basic reset and styling */
+    html, body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background: #222;
+      font-family: sans-serif;
+    }
+    canvas {
+      display: block;
+      background: #333;
+    }
+    /* UI overlay styling */
+    #ui {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      color: #fff;
+      z-index: 10;
+    }
+    #ui div {
+      margin-bottom: 5px;
+    }
+  </style>
+</head>
+<body>
+  <!-- UI Overlay -->
+  <div id="ui">
+    <div>Score: <span id="score">0</span></div>
+    <div>Size: <span id="size">20</span></div>
+  </div>
+  <!-- Game Canvas -->
+  <canvas id="gameCanvas"></canvas>
+
+  <script>
+    // Get canvas and context
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+
+    // Resize canvas to fill the window
+    function resizeCanvas() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    // World settings (an extended world for scrolling)
+    const worldSize = 5000; // World spans from -2500 to 2500 (x & y)
+
+    // Camera holds the top-left world coordinate being displayed
+    const camera = { x: 0, y: 0 };
+
+    // Game state variables
+    let gameOver = false;
+    let score = 0;
+
+    // Player (in world coordinates)
+    const player = {
+      x: 0,
+      y: 0,
+      radius: 20,
+      speed: 2,
+    };
+
+    // Arrays for food pellets and enemy objects
+    let foods = [];
+    let enemies = [];
+    const foodCount = 100;
+
+    // Utility: get a random number between min and max
+    function getRandom(min, max) {
+      return Math.random() * (max - min) + min;
+    }
+
+    // Initialize food pellets in the world
+    function initFoods() {
+      foods = [];
+      for (let i = 0; i < foodCount; i++) {
+        foods.push({
+          x: getRandom(-worldSize / 2, worldSize / 2),
+          y: getRandom(-worldSize / 2, worldSize / 2),
+          radius: 5,
+          color: `hsl(${Math.floor(Math.random() * 360)}, 80%, 60%)`
+        });
+      }
+    }
+    initFoods();
+
+    // Initialize AI enemies in the world
+    function initEnemies() {
+      enemies = [];
+      const enemyCount = 3;
+      for (let i = 0; i < enemyCount; i++) {
+        spawnEnemy();
+      }
+    }
+    initEnemies();
+
+    // Spawn a single enemy, ensuring it spawns away from the player
+    function spawnEnemy() {
+      const radius = getRandom(15, 30);
+      let x = getRandom(-worldSize / 2, worldSize / 2);
+      let y = getRandom(-worldSize / 2, worldSize / 2);
+      while (Math.hypot(x - player.x, y - player.y) < 100) {
+        x = getRandom(-worldSize / 2, worldSize / 2);
+        y = getRandom(-worldSize / 2, worldSize / 2);
+      }
+      enemies.push({
+        x,
+        y,
+        radius,
+        speed: getRandom(0.5, 1.5),
+        color: "#ff5555"
+      });
+    }
+
+    // Track mouse position (screen coordinates) for player movement
+    const mouse = {
+      x: canvas.width / 2,
+      y: canvas.height / 2,
+    };
+    canvas.addEventListener('mousemove', (event) => {
+      mouse.x = event.clientX;
+      mouse.y = event.clientY;
+    });
+
+    // On canvas click: if game over, restart; else, add a food pellet at the click location (converted to world coordinates)
+    canvas.addEventListener('click', (event) => {
+      if (gameOver) {
+        restartGame();
+        return;
+      }
+      const worldX = event.clientX + camera.x;
+      const worldY = event.clientY + camera.y;
+      foods.push({
+        x: worldX,
+        y: worldY,
+        radius: 5,
+        color: `hsl(${Math.floor(Math.random() * 360)}, 80%, 60%)`
+      });
+    });
+
+    // Simple circle collision detection (using world coordinates)
+    function isColliding(circle1, circle2) {
+      const dx = circle1.x - circle2.x;
+      const dy = circle1.y - circle2.y;
+      const distance = Math.hypot(dx, dy);
+      return distance < circle1.radius + circle2.radius;
+    }
+
+    // Update the player's world position based on the mouse.
+    // (The mouse is in screen space, so we convert the player's position to screen space first.)
+    function updatePlayer() {
+      const screenX = player.x - camera.x;
+      const screenY = player.y - camera.y;
+      const dx = mouse.x - screenX;
+      const dy = mouse.y - screenY;
+      // Adjust movement speed based on player's size (bigger = slower)
+      const moveSpeed = player.speed * (20 / player.radius);
+      player.x += dx * 0.05 * moveSpeed;
+      player.y += dy * 0.05 * moveSpeed;
+    }
+
+    // Update the camera using a "dead zone" concept.
+    // The camera won't move until the player moves outside the dead zone.
+    function updateCamera() {
+      const deadZoneMargin = 100; // pixels
+      const screenX = player.x - camera.x;
+      const screenY = player.y - camera.y;
+      // If player is too far left, move camera left
+      if (screenX < deadZoneMargin) {
+        camera.x = player.x - deadZoneMargin;
+      }
+      // If too far right, move camera right
+      if (screenX > canvas.width - deadZoneMargin) {
+        camera.x = player.x - (canvas.width - deadZoneMargin);
+      }
+      // If too high, move camera up
+      if (screenY < deadZoneMargin) {
+        camera.y = player.y - deadZoneMargin;
+      }
+      // If too low, move camera down
+      if (screenY > canvas.height - deadZoneMargin) {
+        camera.y = player.y - (canvas.height - deadZoneMargin);
+      }
+    }
+
+    // Restart the game by resetting all state variables
+    function restartGame() {
+      player.x = 0;
+      player.y = 0;
+      player.radius = 20;
+      score = 0;
+      document.getElementById('score').innerText = score;
+      document.getElementById('size').innerText = player.radius;
+      initFoods();
+      initEnemies();
+      // Reset camera to center on the player initially
+      camera.x = player.x - canvas.width / 2;
+      camera.y = player.y - canvas.height / 2;
+      gameOver = false;
+    }
+
+    // Main game loop
+    function animate() {
+      requestAnimationFrame(animate);
+      // Clear canvas
+      ctx.fillStyle = '#222';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // If game over, display an overlay and wait for restart
+      if (gameOver) {
+        ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#fff";
+        ctx.font = "50px sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("Game Over! Click to Restart", canvas.width / 2, canvas.height / 2);
+        return;
+      }
+
+      // Update game objects
+      updatePlayer();
+      updateCamera();
+
+      // Draw and process food pellets
+      for (let i = foods.length - 1; i >= 0; i--) {
+        const food = foods[i];
+        // Draw food only if within (or near) the current view
+        if (
+          food.x > camera.x - 50 && food.x < camera.x + canvas.width + 50 &&
+          food.y > camera.y - 50 && food.y < camera.y + canvas.height + 50
+        ) {
+          ctx.beginPath();
+          ctx.arc(food.x - camera.x, food.y - camera.y, food.radius, 0, Math.PI * 2);
+          ctx.fillStyle = food.color;
+          ctx.fill();
+        }
+        // Check collision (in world space)
+        if (isColliding(player, food)) {
+          foods.splice(i, 1);
+          score += 1;
+          player.radius += 0.5; // Increase player's size
+          document.getElementById('score').innerText = score;
+          document.getElementById('size').innerText = Math.floor(player.radius);
+          // Spawn a new food pellet in the world
+          foods.push({
+            x: getRandom(-worldSize / 2, worldSize / 2),
+            y: getRandom(-worldSize / 2, worldSize / 2),
+            radius: 5,
+            color: `hsl(${Math.floor(Math.random() * 360)}, 80%, 60%)`
+          });
+        }
+      }
+
+      // Process enemy behavior
+      enemies.forEach((enemy, index) => {
+        // Enemy moves toward the player
+        const dx = player.x - enemy.x;
+        const dy = player.y - enemy.y;
+        const angle = Math.atan2(dy, dx);
+        enemy.x += Math.cos(angle) * enemy.speed;
+        enemy.y += Math.sin(angle) * enemy.speed;
+
+        // Draw enemy if it's visible in the viewport
+        if (
+          enemy.x > camera.x - enemy.radius && enemy.x < camera.x + canvas.width + enemy.radius &&
+          enemy.y > camera.y - enemy.radius && enemy.y < camera.y + canvas.height + enemy.radius
+        ) {
+          ctx.beginPath();
+          ctx.arc(enemy.x - camera.x, enemy.y - camera.y, enemy.radius, 0, Math.PI * 2);
+          ctx.fillStyle = enemy.color;
+          ctx.fill();
+        }
+
+        // Collision: if the player hits an enemy...
+        if (isColliding(player, enemy)) {
+          // If the player is larger, consume the enemy and grow
+          if (player.radius > enemy.radius + 5) {
+            player.radius += enemy.radius * 0.2;
+            document.getElementById('size').innerText = Math.floor(player.radius);
+            enemies.splice(index, 1);
+            spawnEnemy();
+          } else {
+            // Otherwise, game over
+            gameOver = true;
+          }
+        }
+      });
+
+      // Draw the player (convert world coordinates to screen coordinates)
+      ctx.beginPath();
+      ctx.arc(player.x - camera.x, player.y - camera.y, player.radius, 0, Math.PI * 2);
+      ctx.fillStyle = '#fff';
+      ctx.fill();
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = '#000';
+      ctx.stroke();
+    }
+
+    // Initially center the camera on the player
+    camera.x = player.x - canvas.width / 2;
+    camera.y = player.y - canvas.height / 2;
+    animate();
+  </script>
+</body>
+</html>
